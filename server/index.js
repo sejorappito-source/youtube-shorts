@@ -1,8 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import { generateVideo } from './services/video-generator.js';
-import { uploadToYouTube } from './services/youtube-uploader.js';
-import { scheduleVideos } from './services/scheduler.js';
+import { processYouTubeToClips } from './services/video-clipper.js';
+import { uploadToYouTube, initializeYouTubeAuth } from './services/youtube-uploader.js';
 
 dotenv.config();
 
@@ -14,137 +13,118 @@ app.use(express.json());
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
-    service: 'YouTube Shorts Generator',
+    service: 'YouTube Shorts Clipper',
     status: 'running',
     version: '1.0.0',
+    description: 'Convert long YouTube videos into AI-powered Shorts clips',
     endpoints: {
       health: 'GET /health',
-      generate: 'POST /api/generate',
-      upload: 'POST /api/upload',
-      createAndUpload: 'POST /api/create-and-upload',
-      schedule: 'POST /api/schedule'
+      clipVideo: 'POST /api/clip-video',
+      clipAndUpload: 'POST /api/clip-and-upload'
     }
   });
 });
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'YouTube Shorts Generator' });
+  res.json({ status: 'ok', service: 'YouTube Shorts Clipper' });
 });
-app.post('/api/generate', async (req, res) => {
-  try {
-    const { topic, duration = 60 } = req.body;
 
-    if (!topic) {
-      return res.status(400).json({ error: 'Topic required' });
+// Clip a YouTube video
+app.post('/api/clip-video', async (req, res) => {
+  try {
+    const { youtubeUrl } = req.body;
+
+    if (!youtubeUrl) {
+      return res.status(400).json({ error: 'YouTube URL required' });
     }
 
-    console.log(`🎬 Generating video for topic: ${topic}`);
+    console.log(`🎬 Processing: ${youtubeUrl}`);
 
-    const videoPath = await generateVideo(topic, duration);
+    const clips = await processYouTubeToClips(youtubeUrl);
 
     res.json({
       success: true,
-      videoPath,
-      message: 'Video generated successfully'
+      clipsCount: clips.length,
+      clips: clips.map(clip => ({
+        path: clip.path,
+        title: clip.title,
+        duration: clip.duration,
+        reason: clip.reason
+      })),
+      message: `Created ${clips.length} Shorts clips`
     });
   } catch (err) {
-    console.error('Generation error:', err);
+    console.error('Clipping error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Upload video to YouTube
-app.post('/api/upload', async (req, res) => {
+// Clip and upload to YouTube
+app.post('/api/clip-and-upload', async (req, res) => {
   try {
-    const { videoPath, title, description, tags } = req.body;
+    const { youtubeUrl, channelName = 'Money Tips' } = req.body;
 
-    if (!videoPath || !title) {
-      return res.status(400).json({ error: 'Video path and title required' });
+    if (!youtubeUrl) {
+      return res.status(400).json({ error: 'YouTube URL required' });
     }
 
-    console.log(`📤 Uploading to YouTube: ${title}`);
+    console.log(`🚀 Clipping and uploading: ${youtubeUrl}`);
 
-    const result = await uploadToYouTube({
-      videoPath,
-      title,
-      description,
-      tags
-    });
+    // Initialize YouTube auth
+    await initializeYouTubeAuth();
 
-    res.json({
-      success: true,
-      videoId: result.id,
-      url: result.url,
-      message: 'Video uploaded successfully'
-    });
-  } catch (err) {
-    console.error('Upload error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
+    // Process video to clips
+    const clips = await processYouTubeToClips(youtubeUrl);
 
-// Generate and upload in one call
-app.post('/api/create-and-upload', async (req, res) => {
-  try {
-    const { topic, title, description, tags, duration = 60 } = req.body;
+    // Upload each clip
+    const uploads = [];
+    for (let i = 0; i < clips.length; i++) {
+      const clip = clips[i];
+      try {
+        const result = await uploadToYouTube({
+          videoPath: clip.path,
+          title: `💰 ${clip.title}`,
+          description: `Money tip from ${channelName}\n\n${clip.reason}\n\n#Shorts #Money #Finance`,
+          tags: ['money', 'finance', 'shorts', 'tips', clip.title.toLowerCase()]
+        });
 
-    if (!topic || !title) {
-      return res.status(400).json({ error: 'Topic and title required' });
+        uploads.push({
+          title: clip.title,
+          videoId: result.id,
+          url: result.url,
+          status: 'uploaded'
+        });
+
+        console.log(`✅ Uploaded clip ${i + 1}: ${result.url}`);
+      } catch (uploadErr) {
+        console.error(`Failed to upload clip ${i + 1}:`, uploadErr.message);
+        uploads.push({
+          title: clip.title,
+          status: 'failed',
+          error: uploadErr.message
+        });
+      }
     }
 
-    console.log(`🚀 Creating and uploading: ${title}`);
-
-    // Generate video
-    const videoPath = await generateVideo(topic, duration);
-
-    // Upload to YouTube
-    const result = await uploadToYouTube({
-      videoPath,
-      title,
-      description: description || `Money tip: ${topic}`,
-      tags: tags || ['money', 'finance', 'shorts', 'investing']
-    });
-
     res.json({
       success: true,
-      videoPath,
-      videoId: result.id,
-      url: result.url,
-      message: 'Video created and uploaded successfully'
+      clipsCreated: clips.length,
+      clipsUploaded: uploads.filter(u => u.status === 'uploaded').length,
+      uploads: uploads,
+      message: `Created and uploaded ${uploads.filter(u => u.status === 'uploaded').length}/${clips.length} Shorts`
     });
   } catch (err) {
-    console.error('Create and upload error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Schedule daily video generation
-app.post('/api/schedule', async (req, res) => {
-  try {
-    const { frequency = 'daily', time = '09:00' } = req.body;
-
-    console.log(`⏰ Scheduling videos: ${frequency} at ${time}`);
-
-    await scheduleVideos(frequency, time);
-
-    res.json({
-      success: true,
-      message: `Videos scheduled ${frequency} at ${time}`
-    });
-  } catch (err) {
-    console.error('Schedule error:', err);
+    console.error('Clip and upload error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`🎬 YouTube Shorts Generator running on http://localhost:${PORT}`);
+  console.log(`🎬 YouTube Shorts Clipper running on http://localhost:${PORT}`);
   console.log(`📋 API Endpoints:`);
   console.log(`   GET / - Service info`);
   console.log(`   GET /health - Health check`);
-  console.log(`   POST /api/generate - Generate video`);
-  console.log(`   POST /api/upload - Upload to YouTube`);
-  console.log(`   POST /api/create-and-upload - Create & upload`);
-  console.log(`   POST /api/schedule - Schedule videos`);
+  console.log(`   POST /api/clip-video - Clip YouTube video`);
+  console.log(`   POST /api/clip-and-upload - Clip and upload to YouTube`);
 });

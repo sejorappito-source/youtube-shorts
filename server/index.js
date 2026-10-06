@@ -1,7 +1,11 @@
 import express from 'express';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { processYouTubeToClips } from './services/video-clipper.js';
 import { uploadToYouTube, initializeYouTubeAuth } from './services/youtube-uploader.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 dotenv.config();
 
@@ -9,6 +13,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Root endpoint
 app.get('/', (req, res) => {

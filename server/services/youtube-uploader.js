@@ -5,15 +5,6 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const youtube = google.youtube({
-  version: 'v3',
-  auth: new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
-  )
-);
-
 let oauth2Client;
 
 // Initialize OAuth2

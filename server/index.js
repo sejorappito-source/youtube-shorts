@@ -11,7 +11,26 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Generate a video on demand
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    service: 'YouTube Shorts Generator',
+    status: 'running',
+    version: '1.0.0',
+    endpoints: {
+      health: 'GET /health',
+      generate: 'POST /api/generate',
+      upload: 'POST /api/upload',
+      createAndUpload: 'POST /api/create-and-upload',
+      schedule: 'POST /api/schedule'
+    }
+  });
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'YouTube Shorts Generator' });
+});
 app.post('/api/generate', async (req, res) => {
   try {
     const { topic, duration = 60 } = req.body;
@@ -119,14 +138,11 @@ app.post('/api/schedule', async (req, res) => {
   }
 });
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'YouTube Shorts Generator' });
-});
-
 app.listen(PORT, () => {
   console.log(`🎬 YouTube Shorts Generator running on http://localhost:${PORT}`);
   console.log(`📋 API Endpoints:`);
+  console.log(`   GET / - Service info`);
+  console.log(`   GET /health - Health check`);
   console.log(`   POST /api/generate - Generate video`);
   console.log(`   POST /api/upload - Upload to YouTube`);
   console.log(`   POST /api/create-and-upload - Create & upload`);

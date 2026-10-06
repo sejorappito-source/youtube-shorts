@@ -8,13 +8,21 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+let openai;
+let elevenlabs;
 
-const elevenlabs = new ElevenLabs({
-  apiKey: process.env.ELEVENLABS_API_KEY
-});
+function initializeClients() {
+  if (!openai) {
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+  }
+  if (!elevenlabs) {
+    elevenlabs = new ElevenLabs({
+      apiKey: process.env.ELEVENLABS_API_KEY
+    });
+  }
+}
 
 // Money/Finance tips database
 const moneyTips = [
@@ -32,6 +40,7 @@ const moneyTips = [
 
 export async function generateVideo(topic, duration = 60) {
   try {
+    initializeClients();
     console.log(`📝 Generating script for: ${topic}`);
 
     // Step 1: Generate script using ChatGPT
